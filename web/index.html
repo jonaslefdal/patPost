@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>patPost</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<meta name="theme-color" content="#1b1714">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="patPost">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px calc(32px + env(safe-area-inset-bottom));
+    background: #1b1714; color: #f4efe9;
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    display: flex; justify-content: center;
+  }
+  main { width: 100%; max-width: 30rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: #a49a8e; margin: 0 0 28px; }
+  .card {
+    background: #241f1b; border: 1px solid #332c26;
+    border-radius: 14px; padding: 18px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 1rem; margin: 0 0 8px; }
+  .card p { margin: 0; color: #a49a8e; font-size: 0.94rem; }
+  ol { margin: 10px 0 0; padding-left: 20px; color: #a49a8e; font-size: 0.94rem; }
+  label { display: block; font-size: 0.85rem; color: #a49a8e; margin: 14px 0 6px; }
+  input {
+    width: 100%; padding: 12px; font-size: 16px; font-family: inherit;
+    background: #1b1714; color: #f4efe9;
+    border: 1px solid #3d352d; border-radius: 10px;
+  }
+  input:focus { outline: 2px solid #f0a92e; outline-offset: -1px; border-color: transparent; }
+  button {
+    width: 100%; margin-top: 18px; padding: 14px; font-size: 16px; font-weight: 600;
+    font-family: inherit; color: #1b1714; background: #f0a92e;
+    border: 0; border-radius: 10px; cursor: pointer;
+  }
+  button:disabled { opacity: 0.45; cursor: default; }
+  #status { margin-top: 16px; font-size: 0.94rem; }
+  .ok { color: #7fc99a; }
+  .err { color: #e8857a; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.86em; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>patPost</h1>
+  <p class="sub">Notifications from my own projects.</p>
+
+  <section class="card" id="install" hidden>
+    <h2>Add to Home Screen first</h2>
+    <p>iOS only delivers Web Push to web apps installed on the Home Screen, not
+      to Safari tabs.</p>
+    <ol>
+      <li>Tap the Share button</li>
+      <li>Add to Home Screen</li>
+      <li>Open patPost from the Home Screen and come back here</li>
+    </ol>
+  </section>
+
+  <section class="card" id="unsupported" hidden>
+    <h2>Not supported here</h2>
+    <p>This browser has no Web Push. On iOS it needs version 16.4 or later.</p>
+  </section>
+
+  <section id="enrol" hidden>
+    <label for="secret">Enrol secret</label>
+    <input id="secret" type="password" autocomplete="off" autocapitalize="off"
+           spellcheck="false" placeholder="PUSH_ENROLL_SECRET">
+    <label for="label">Device name</label>
+    <input id="label" type="text" autocomplete="off" placeholder="iPhone">
+    <button id="enable">Enable notifications</button>
+  </section>
+
+  <section class="card" id="enrolled" hidden>
+    <h2 class="ok">Enrolled</h2>
+    <p>This device is on the list. Sending to <code id="host"></code>.</p>
+  </section>
+
+  <p id="status"></p>
+</main>
+
+<script src="./config.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const say = (msg, cls = "") => { $("status").textContent = msg; $("status").className = cls; };
+
+// Keeping the secret lets a subscription iOS drops be replaced without prompting.
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+};
+
+function b64urlToBytes(s) {
+  const b64 = (s + "=".repeat((4 - s.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+}
+
+async function postSubscription(sub, secret, label) {
+  const res = await fetch(CONFIG.subscribeUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-enroll-key": secret },
+    // toJSON() already produces { endpoint, keys: { p256dh, auth } }.
+    body: JSON.stringify({ ...sub.toJSON(), label }),
+  });
+  if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 120)}`);
+}
+
+function showEnrolled(sub) {
+  $("enrol").hidden = true;
+  $("enrolled").hidden = false;
+  $("host").textContent = new URL(sub.endpoint).host;
+}
+
+async function enable() {
+  const secret = $("secret").value.trim() || store.get("enrolSecret");
+  if (!secret) return say("Enter the enrol secret.", "err");
+  $("enable").disabled = true;
+  say("Requesting permission…");
+  try {
+    const reg = await navigator.serviceWorker.register("./sw.js");
+    // Must be called from the tap gesture, not after a slow await.
+    if (await Notification.requestPermission() !== "granted") {
+      throw new Error("Permission denied. Re-enable it in iOS Settings > patPost.");
+    }
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: b64urlToBytes(CONFIG.vapidPublicKey),
+    });
+    await postSubscription(sub, secret, $("label").value.trim() || "iPhone");
+    store.set("enrolSecret", secret);
+    showEnrolled(sub);
+    say("");
+  } catch (e) {
+    say(e.message, "err");
+  } finally {
+    $("enable").disabled = false;
+  }
+}
+
+async function init() {
+  const supported = "serviceWorker" in navigator && "PushManager" in window &&
+    "Notification" in window;
+  const standalone = matchMedia("(display-mode: standalone)").matches ||
+    navigator.standalone === true;
+
+  if (!supported) {
+    $(standalone ? "unsupported" : "install").hidden = false;
+    return;
+  }
+  if (CONFIG.vapidPublicKey.startsWith("REPLACE")) {
+    $("enrol").hidden = false;
+    return say("config.js has not been filled in.", "err");
+  }
+
+  const reg = await navigator.serviceWorker.register("./sw.js");
+  const existing = await reg.pushManager.getSubscription();
+  if (existing) return showEnrolled(existing);
+
+  $("enrol").hidden = false;
+
+  // iOS drops subscriptions silently; the server only learns from a 410 at send time.
+  const secret = store.get("enrolSecret");
+  if (Notification.permission === "granted" && secret) {
+    try {
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: b64urlToBytes(CONFIG.vapidPublicKey),
+      });
+      await postSubscription(sub, secret, "iPhone");
+      showEnrolled(sub);
+    } catch { /* fall back to the form */ }
+  }
+}
+
+$("enable").addEventListener("click", enable);
+init().catch((e) => say(e.message, "err"));
+</script>
+</body>
+</html>
