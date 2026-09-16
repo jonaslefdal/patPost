@@ -1,5 +1,5 @@
 // Bump on every change to this file, so the page can show which one is live.
-const SW_VERSION = 2;
+const SW_VERSION = 3;
 
 self.addEventListener("message", (event) => {
   if (event.data === "version") event.ports[0]?.postMessage(SW_VERSION);
@@ -22,7 +22,7 @@ self.addEventListener("push", (event) => {
     tag: data.tag,
     // Without this a repeat push on the same tag replaces it silently.
     renotify: Boolean(data.tag),
-    data: { url: data.url, appUrl: data.appUrl },
+    data: { url: data.url },
     icon: "./icons/icon-192.png",
     badge: "./icons/icon-192.png",
   }));
@@ -30,13 +30,10 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const { url, appUrl } = event.notification.data ?? {};
-  if (!url && !appUrl) return;
-  // openWindow on an https link lands in this app's own web view rather than
-  // handing the universal link to iOS, so try the target app's scheme first.
-  event.waitUntil(
-    appUrl
-      ? clients.openWindow(appUrl).catch(() => url && clients.openWindow(url))
-      : clients.openWindow(url),
-  );
+  const url = event.notification.data?.url;
+  if (!url) return;
+  // An app scheme was tried here and is not navigable: openWindow neither
+  // follows it nor rejects, so the tap silently did nothing. https at least
+  // reaches the page, which offers its own "Open in app".
+  event.waitUntil(clients.openWindow(url));
 });
