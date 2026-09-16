@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Opening…</title>
+<meta name="theme-color" content="#1b1714">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px 16px calc(32px + env(safe-area-inset-bottom));
+    background: #1b1714; color: #f4efe9;
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    display: flex; justify-content: center;
+  }
+  main { width: 100%; max-width: 26rem; text-align: center; }
+  h1 { font-size: 1.15rem; font-weight: 600; margin: 0 0 6px; }
+  p { color: #a49a8e; margin: 0 0 28px; font-size: 0.94rem; }
+  a {
+    display: block; padding: 14px; margin-bottom: 10px; border-radius: 10px;
+    font-size: 16px; font-weight: 600; text-decoration: none;
+  }
+  .primary { background: #f0a92e; color: #1b1714; }
+  .secondary { background: #241f1b; color: #f4efe9; border: 1px solid #3d352d; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="head">Opening the app…</h1>
+  <p id="sub">If nothing happens, choose below.</p>
+  <a id="app" class="primary" hidden>Open in the app</a>
+  <a id="web" class="secondary" hidden>Open on the web</a>
+</main>
+<script>
+const params = new URLSearchParams(location.search);
+const appUrl = params.get("a") ?? "";
+const webUrl = params.get("u") ?? "";
+
+// This page is public, so its parameters are not trustworthy. Anything that
+// executes or reads local data is refused; app schemes are the point.
+const blocked = ["javascript", "data", "file", "blob", "vbscript"];
+const scheme = appUrl.split(":")[0].toLowerCase();
+const safeApp = appUrl && !blocked.includes(scheme);
+const safeWeb = /^https:\/\//i.test(webUrl);
+
+// Leaving for the app backgrounds this page, which is the only signal that the
+// jump worked -- a failed scheme navigation reports nothing at all.
+let left = false;
+const mark = () => { left = true; };
+document.addEventListener("visibilitychange", () => document.hidden && mark());
+window.addEventListener("pagehide", mark);
+
+if (safeApp) location.href = appUrl;
+
+setTimeout(() => {
+  if (left) return;
+  document.getElementById("head").textContent = "Still here";
+  document.getElementById("sub").textContent = "The app did not take over.";
+  for (const [id, href, ok] of [["app", appUrl, safeApp], ["web", webUrl, safeWeb]]) {
+    if (!ok) continue;
+    const el = document.getElementById(id);
+    el.href = href;
+    el.hidden = false;
+  }
+}, 1400);
+</script>
+</body>
+</html>
