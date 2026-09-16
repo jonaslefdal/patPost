@@ -1,3 +1,10 @@
+// Bump on every change to this file, so the page can show which one is live.
+const SW_VERSION = 2;
+
+self.addEventListener("message", (event) => {
+  if (event.data === "version") event.ports[0]?.postMessage(SW_VERSION);
+});
+
 // Without these a new worker sits waiting until every instance of the app is
 // closed, so a changed notificationclick handler would not take effect.
 self.addEventListener("install", () => self.skipWaiting());

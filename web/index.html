@@ -42,6 +42,7 @@
   }
   button:disabled { opacity: 0.45; cursor: default; }
   #status { margin-top: 16px; font-size: 0.94rem; }
+  #swver { margin-top: 24px; font-size: 0.8rem; color: #6d655c; }
   .ok { color: #7fc99a; }
   .err { color: #e8857a; }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.86em; }
@@ -84,6 +85,7 @@
   </section>
 
   <p id="status"></p>
+  <p id="swver"></p>
 </main>
 
 <script src="./config.js"></script>
@@ -144,6 +146,19 @@ async function enable() {
   }
 }
 
+async function showWorkerVersion() {
+  const sw = navigator.serviceWorker.controller;
+  if (!sw) return ($("swver").textContent = "worker: not controlling this page yet");
+  const version = await new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = (e) => resolve(e.data);
+    sw.postMessage("version", [ch.port2]);
+    // Workers before v2 have no message handler and never reply.
+    setTimeout(() => resolve(null), 1000);
+  });
+  $("swver").textContent = version ? `worker v${version}` : "worker: pre-v2";
+}
+
 async function init() {
   const supported = "serviceWorker" in navigator && "PushManager" in window &&
     "Notification" in window;
@@ -160,6 +175,7 @@ async function init() {
   }
 
   const reg = await navigator.serviceWorker.register("./sw.js");
+  showWorkerVersion();
   const existing = await reg.pushManager.getSubscription();
   if (existing) return showEnrolled(existing);
 
